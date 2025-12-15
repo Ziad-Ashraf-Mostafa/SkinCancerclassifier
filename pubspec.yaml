@@ -1,0 +1,44 @@
+name: skin_cancer_detector
+description: "A modern AI-powered skin cancer detection app."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  
+  # Camera
+  camera: ^0.11.0+2
+  
+  # TFLite for AI inference
+  tflite_flutter: ^0.11.0
+  
+  # Image processing
+  image: ^4.3.0
+  
+  # Permissions
+  permission_handler: ^11.3.1
+  
+  # Path provider for temp directory
+  path_provider: ^2.1.5
+  
+  # Modern fonts
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - lib/ai/skin_cancer_model.tflite
+    - lib/ai/labels_cancer.txt
