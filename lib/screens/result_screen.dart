@@ -1,17 +1,24 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 import '../theme/theme.dart';
 import '../services/skin_cancer_classifier.dart';
+import '../services/scan_storage_service.dart';
+import 'home_screen.dart';
 
 class ResultScreen extends StatefulWidget {
   final String imagePath;
   final ClassificationResult result;
+  final List<CameraDescription> cameras;
+  final SkinCancerClassifier classifier;
 
   const ResultScreen({
     super.key,
     required this.imagePath,
     required this.result,
+    required this.cameras,
+    required this.classifier,
   });
 
   @override
@@ -24,6 +31,9 @@ class _ResultScreenState extends State<ResultScreen>
   late Animation<double> _fadeAnimation;
   late Animation<double> _slideAnimation;
   late Animation<double> _progressAnimation;
+
+  bool _isSaving = false;
+  bool _isSaved = false;
 
   @override
   void initState() {
@@ -64,6 +74,84 @@ class _ResultScreenState extends State<ResultScreen>
     super.dispose();
   }
 
+  void _navigateToHome() {
+    Navigator.of(context).pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            HomeScreen(cameras: widget.cameras, classifier: widget.classifier),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+      (route) => false,
+    );
+  }
+
+  Future<void> _saveAndGoHome() async {
+    if (_isSaving || _isSaved) return;
+
+    setState(() => _isSaving = true);
+
+    try {
+      await ScanStorageService.instance.initialize();
+      final record = await ScanStorageService.instance.saveScan(
+        imageFile: File(widget.imagePath),
+        result: widget.result,
+      );
+
+      if (record != null) {
+        setState(() {
+          _isSaved = true;
+          _isSaving = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.white),
+                  SizedBox(width: 10),
+                  Text('Scan saved successfully'),
+                ],
+              ),
+              backgroundColor: AppTheme.safeGreen,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+
+          // Wait a moment then navigate home
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            _navigateToHome();
+          }
+        }
+      } else {
+        throw Exception('Failed to save scan');
+      }
+    } catch (e) {
+      debugPrint('Error saving scan: $e');
+      setState(() => _isSaving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to save scan. Please try again.'),
+            backgroundColor: AppTheme.dangerRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isCancerous = widget.result.isCancerous;
@@ -86,15 +174,12 @@ class _ResultScreenState extends State<ResultScreen>
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.pop(context),
+                        onTap: _navigateToHome,
                         child: GlassmorphicContainer(
                           opacity: 0.15,
                           borderRadius: 14,
                           padding: const EdgeInsets.all(12),
-                          child: const Icon(
-                            Icons.arrow_back_ios_new_rounded,
-                            size: 20,
-                          ),
+                          child: const Icon(Icons.home_rounded, size: 20),
                         ),
                       ),
                       const Spacer(),
@@ -307,40 +392,105 @@ class _ResultScreenState extends State<ResultScreen>
                   ),
                 ),
 
-                // Bottom button
+                // Bottom buttons
                 Padding(
                   padding: const EdgeInsets.all(20),
                   child: Transform.translate(
                     offset: Offset(0, _slideAnimation.value),
                     child: Opacity(
                       opacity: _fadeAnimation.value,
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: 60,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.accentTeal,
-                            foregroundColor: Colors.black,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.camera_alt_rounded, size: 22),
-                              SizedBox(width: 10),
-                              Text(
-                                'Scan Again',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
+                      child: Column(
+                        children: [
+                          // Save button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: ElevatedButton(
+                              onPressed: (_isSaving || _isSaved)
+                                  ? null
+                                  : _saveAndGoHome,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.accentTeal,
+                                foregroundColor: Colors.black,
+                                disabledBackgroundColor: _isSaved
+                                    ? AppTheme.safeGreen
+                                    : AppTheme.accentTeal.withAlpha(100),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
                                 ),
                               ),
-                            ],
+                              child: _isSaving
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          _isSaved
+                                              ? Icons.check_rounded
+                                              : Icons.save_rounded,
+                                          size: 22,
+                                          color: _isSaved ? Colors.white : null,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          _isSaved
+                                              ? 'Saved!'
+                                              : 'Save & Return Home',
+                                          style: TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w600,
+                                            color: _isSaved
+                                                ? Colors.white
+                                                : null,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
                           ),
-                        ),
+
+                          const SizedBox(height: 12),
+
+                          // Return home without saving button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: OutlinedButton(
+                              onPressed: _navigateToHome,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white70,
+                                side: BorderSide(
+                                  color: Colors.white.withAlpha(60),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.home_rounded, size: 22),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'Return to Home',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

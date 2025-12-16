@@ -3,8 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'theme/theme.dart';
-import 'screens/camera_screen.dart';
+import 'screens/home_screen.dart';
 import 'services/skin_cancer_classifier.dart';
+import 'services/scan_storage_service.dart';
 
 List<CameraDescription> cameras = [];
 final SkinCancerClassifier classifier = SkinCancerClassifier();
@@ -12,7 +13,7 @@ final SkinCancerClassifier classifier = SkinCancerClassifier();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set system UI overlay style 
+  // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -111,6 +112,13 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
 
+    // Request storage permission (for saving scans)
+    setState(() => _loadingStatus = 'Setting up storage...');
+    await Permission.storage.request();
+
+    // Initialize scan storage service
+    await ScanStorageService.instance.initialize();
+
     // Load AI model
     setState(() => _loadingStatus = 'Loading AI model...');
 
@@ -128,16 +136,16 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 500));
 
     if (mounted) {
-      _navigateToCamera();
+      _navigateToHome();
     }
   }
 
-  void _navigateToCamera() {
+  void _navigateToHome() {
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            CameraScreen(cameras: cameras, classifier: classifier),
+            HomeScreen(cameras: cameras, classifier: classifier),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
         },

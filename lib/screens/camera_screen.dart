@@ -1,14 +1,9 @@
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:image/image.dart' as img;
 import '../theme/theme.dart';
 import '../services/skin_cancer_classifier.dart';
-import 'result_screen.dart';
-
-// Constants for the targeting box
-const double _targetBoxSize = 220.0;
+import 'preprocessing_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -147,34 +142,17 @@ class _CameraScreenState extends State<CameraScreen>
         await _controller!.setFlashMode(FlashMode.torch);
       }
 
-      if (!widget.classifier.isReady) {
-        _showError('AI model is not loaded. Please restart the app.');
-        setState(() => _isCapturing = false);
-        return;
-      }
-
-      // Crop the image to the target box region
-      final croppedFile = await _cropToTargetBox(File(image.path));
-      if (croppedFile == null) {
-        _showError('Failed to process image. Please try again.');
-        setState(() => _isCapturing = false);
-        return;
-      }
-
-      final result = await widget.classifier.classifyImage(croppedFile);
-
-      if (result == null) {
-        _showError('Failed to analyze image. Please try again.');
-        setState(() => _isCapturing = false);
-        return;
-      }
-
       if (mounted) {
+        // Navigate to preprocessing screen for cropping
         Navigator.push(
           context,
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
-                ResultScreen(imagePath: croppedFile.path, result: result),
+                PreprocessingScreen(
+                  imagePath: image.path,
+                  classifier: widget.classifier,
+                  cameras: widget.cameras,
+                ),
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) {
                   return FadeTransition(opacity: animation, child: child);
@@ -263,17 +241,10 @@ class _CameraScreenState extends State<CameraScreen>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Flash toggle (only for back camera)
-                  AnimatedOpacity(
-                    opacity: _isBackCamera ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: _buildControlButton(
-                      icon: _isFlashOn
-                          ? Icons.flash_on_rounded
-                          : Icons.flash_off_rounded,
-                      onPressed: _isBackCamera ? _toggleFlash : null,
-                      isActive: _isFlashOn,
-                    ),
+                  // Back button
+                  _buildControlButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    onPressed: () => Navigator.pop(context),
                   ),
 
                   // Title
@@ -305,10 +276,28 @@ class _CameraScreenState extends State<CameraScreen>
                     ),
                   ),
 
-                  // Camera switch
-                  _buildControlButton(
-                    icon: Icons.cameraswitch_rounded,
-                    onPressed: _switchCamera,
+                  // Camera controls row
+                  Row(
+                    children: [
+                      // Flash toggle (only for back camera)
+                      AnimatedOpacity(
+                        opacity: _isBackCamera ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: _buildControlButton(
+                          icon: _isFlashOn
+                              ? Icons.flash_on_rounded
+                              : Icons.flash_off_rounded,
+                          onPressed: _isBackCamera ? _toggleFlash : null,
+                          isActive: _isFlashOn,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Camera switch
+                      _buildControlButton(
+                        icon: Icons.cameraswitch_rounded,
+                        onPressed: _switchCamera,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -393,125 +382,6 @@ class _CameraScreenState extends State<CameraScreen>
         ],
       ),
     );
-  }
-
-  /// Crops the captured image to only include the region within the target box.
-  Future<File?> _cropToTargetBox(File imageFile) async {
-    try {
-      final bytes = await imageFile.readAsBytes();
-      final originalImage = img.decodeImage(bytes);
-
-      if (originalImage == null) {
-        debugPrint('Failed to decode image for cropping');
-        return null;
-      }
-
-      // Get screen dimensions
-      final screenSize = MediaQuery.of(context).size;
-      final screenWidth = screenSize.width;
-      final screenHeight = screenSize.height;
-
-      // The camera preview uses LayoutBuilder with these calculations:
-      // aspectRatio = 3.0 / 4.0 (width / height for portrait)
-      // previewWidth = constraints.maxWidth (= screenWidth since it's in a Stack)
-      // previewHeight = previewWidth / aspectRatio = screenWidth / (3/4) = screenWidth * 4/3
-      final previewWidth = screenWidth;
-      final previewHeight = screenWidth * (4.0 / 3.0);
-
-      // The preview is centered on screen
-      final previewTop = (screenHeight - previewHeight) / 2;
-      final previewLeft = 0.0;
-
-      // Target box is centered on the screen
-      final boxCenterX = screenWidth / 2;
-      final boxCenterY = screenHeight / 2;
-
-      // Target box position relative to the preview area
-      final boxRelativeX = boxCenterX - previewLeft;
-      final boxRelativeY = boxCenterY - previewTop;
-
-      // Now we need to figure out how the captured image maps to the preview
-      // The camera uses BoxFit.cover, which scales the image to fill the container
-      // while maintaining aspect ratio, cropping the excess
-
-      final imageWidth = originalImage.width.toDouble();
-      final imageHeight = originalImage.height.toDouble();
-
-      final previewAspect = previewWidth / previewHeight;
-      final imageAspect = imageWidth / imageHeight;
-
-      double visibleImageWidth, visibleImageHeight;
-      double imageOffsetX = 0, imageOffsetY = 0;
-      double scale;
-
-      if (imageAspect > previewAspect) {
-        // Image is wider than preview - height fills, sides are cropped
-        // The image height matches the preview height
-        scale = imageHeight / previewHeight;
-        visibleImageWidth = previewWidth * scale;
-        visibleImageHeight = imageHeight;
-        imageOffsetX = (imageWidth - visibleImageWidth) / 2;
-        imageOffsetY = 0;
-      } else {
-        // Image is taller than preview - width fills, top/bottom are cropped
-        // The image width matches the preview width
-        scale = imageWidth / previewWidth;
-        visibleImageWidth = imageWidth;
-        visibleImageHeight = previewHeight * scale;
-        imageOffsetX = 0;
-        imageOffsetY = (imageHeight - visibleImageHeight) / 2;
-      }
-
-      // Calculate the crop region in original image coordinates
-      // Position of box center in image coordinates
-      final imageCropCenterX = imageOffsetX + (boxRelativeX * scale);
-      final imageCropCenterY = imageOffsetY + (boxRelativeY * scale);
-
-      // Size of the crop region (the target box size scaled to image coordinates)
-      final cropSize = _targetBoxSize * scale;
-
-      // Calculate crop bounds
-      int cropX = (imageCropCenterX - cropSize / 2).round();
-      int cropY = (imageCropCenterY - cropSize / 2).round();
-      int cropWidth = cropSize.round();
-      int cropHeight = cropSize.round();
-
-      // Clamp to image bounds
-      cropX = cropX.clamp(0, originalImage.width - 1);
-      cropY = cropY.clamp(0, originalImage.height - 1);
-      cropWidth = cropWidth.clamp(1, originalImage.width - cropX);
-      cropHeight = cropHeight.clamp(1, originalImage.height - cropY);
-
-      debugPrint('Image size: ${originalImage.width}x${originalImage.height}');
-      debugPrint('Preview size: ${previewWidth}x$previewHeight');
-      debugPrint('Scale: $scale, Offset: ($imageOffsetX, $imageOffsetY)');
-      debugPrint('Box relative: ($boxRelativeX, $boxRelativeY)');
-      debugPrint('Crop center: ($imageCropCenterX, $imageCropCenterY)');
-      debugPrint(
-        'Cropping from ($cropX, $cropY) size ${cropWidth}x$cropHeight',
-      );
-
-      // Perform the crop
-      final croppedImage = img.copyCrop(
-        originalImage,
-        x: cropX,
-        y: cropY,
-        width: cropWidth,
-        height: cropHeight,
-      );
-
-      // Save cropped image to a temporary file
-      final croppedBytes = img.encodeJpg(croppedImage, quality: 95);
-      final tempDir = await Directory.systemTemp.createTemp('cropped_');
-      final croppedFile = File('${tempDir.path}/cropped_image.jpg');
-      await croppedFile.writeAsBytes(croppedBytes);
-
-      return croppedFile;
-    } catch (e, stackTrace) {
-      debugPrint('Error cropping image: $e');
-      debugPrint('Stack trace: $stackTrace');
-      return null;
-    }
   }
 
   Widget _buildCameraPreview() {
