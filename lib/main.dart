@@ -6,6 +6,7 @@ import 'theme/theme.dart';
 import 'screens/home_screen.dart';
 import 'services/skin_cancer_classifier.dart';
 import 'services/scan_storage_service.dart';
+import 'package:gal/gal.dart'; 
 
 List<CameraDescription> cameras = [];
 final SkinCancerClassifier classifier = SkinCancerClassifier();

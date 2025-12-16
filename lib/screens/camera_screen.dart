@@ -259,68 +259,75 @@ class _CameraScreenState extends State<CameraScreen>
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Back button
-                  _buildControlButton(
-                    icon: Icons.arrow_back_ios_new_rounded,
-                    onPressed: () => Navigator.pop(context),
-                  ),
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // 1. Back Button
+                      _buildControlButton(
+                        icon: Icons.arrow_back_ios_new_rounded,
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      
+                      const SizedBox(width: 8),
 
-                  // Title
-                  GlassmorphicContainer(
-                    opacity: 0.15,
-                    borderRadius: 16,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: AppTheme.safeGreen,
-                            shape: BoxShape.circle,
+                      // 2. Title (Fixed Overflow here)
+                      Flexible(
+                        child: GlassmorphicContainer(
+                          opacity: 0.15,
+                          borderRadius: 16,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12, // قللنا الحواف عشان نوفر مساحة
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: AppTheme.safeGreen,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'Skin Scanner',
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis, // عشان لو الكلام كتير ميكسرش الشاشة
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Skin Scanner',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Camera controls row
-                  Row(
-                    children: [
-                      // Flash toggle (only for back camera)
-                      AnimatedOpacity(
-                        opacity: _isBackCamera ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 200),
-                        child: _buildControlButton(
-                          icon: _isFlashOn
-                              ? Icons.flash_on_rounded
-                              : Icons.flash_off_rounded,
-                          onPressed: _isBackCamera ? _toggleFlash : null,
-                          isActive: _isFlashOn,
-                        ),
                       ),
+
                       const SizedBox(width: 8),
-                      // Camera switch
-                      _buildControlButton(
-                        icon: Icons.cameraswitch_rounded,
-                        onPressed: _switchCamera,
+
+                      // 3. Camera Controls (Flash & Switch)
+                      Row(
+                        children: [
+                          AnimatedOpacity(
+                            opacity: _isBackCamera ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            child: _buildControlButton(
+                              icon: _isFlashOn
+                                  ? Icons.flash_on_rounded
+                                  : Icons.flash_off_rounded,
+                              onPressed: _isBackCamera ? _toggleFlash : null,
+                              isActive: _isFlashOn,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildControlButton(
+                            icon: Icons.cameraswitch_rounded,
+                            onPressed: _switchCamera,
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
             ),
           ),
 

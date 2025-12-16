@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'skin_cancer_classifier.dart';
+import 'package:gal/gal.dart';
 
 class ScanRecord {
   final String id;
@@ -245,55 +246,26 @@ class ScanStorageService {
     }
   }
 
-  /// Export scan image to device gallery/downloads
+ /// Export scan image to device gallery using GAL package
   Future<String?> exportToGallery(ScanRecord record) async {
     try {
-      final imageFile = File(record.imagePath);
-      if (!await imageFile.exists()) {
-        debugPrint('Image file not found for export');
-        return null;
+      // 1. Check Permissions
+      final hasAccess = await Gal.hasAccess();
+      if (!hasAccess) {
+        await Gal.requestAccess();
       }
 
-      // Get the downloads/pictures directory
-      Directory? exportDir;
+      // 2. Save to Gallery directly
+      // This works on Android & iOS automatically
+      await Gal.putImage(record.imagePath, album: 'SkinScanner');
+
+      debugPrint('Saved to gallery successfully');
       
-      if (Platform.isAndroid) {
-        // Try to get external storage for export
-        exportDir = await getExternalStorageDirectory();
-        if (exportDir != null) {
-          // Navigate up to get to the root external storage
-          final pathParts = exportDir.path.split('/');
-          final androidIndex = pathParts.indexOf('Android');
-          if (androidIndex > 0) {
-            final rootPath = pathParts.sublist(0, androidIndex).join('/');
-            exportDir = Directory('$rootPath/Pictures/SkinScanner');
-          }
-        }
-      } else if (Platform.isIOS) {
-        exportDir = await getApplicationDocumentsDirectory();
-        exportDir = Directory('${exportDir.path}/Exports');
-      }
-
-      exportDir ??= await getApplicationDocumentsDirectory();
-
-      // Create export directory if needed
-      if (!await exportDir.exists()) {
-        await exportDir.create(recursive: true);
-      }
-
-      // Generate export filename
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(record.dateTime);
-      final exportFileName = 'SkinScan_${timestamp}_${record.id.substring(0, 8)}.jpg';
-      final exportPath = '${exportDir.path}/$exportFileName';
-
-      // Copy the file
-      await imageFile.copy(exportPath);
-
-      debugPrint('Exported to: $exportPath');
-      return exportPath;
+      // بنرجع أي كلمة عشان الـ HistoryScreen تفهم إن العملية نجحت
+      return "Saved to SkinScanner Album"; 
     } catch (e) {
-      debugPrint('Error exporting to gallery: $e');
-      return null;
+      debugPrint('Error saving to gallery: $e');
+      return null; // لو رجع null الشاشة هتفهم إنه فشل
     }
   }
 }
