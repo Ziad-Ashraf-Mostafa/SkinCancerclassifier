@@ -118,6 +118,26 @@ class _CameraScreenState extends State<CameraScreen>
         CameraLensDirection.back;
   }
 
+  Future<void> _onTapToFocus(
+    TapDownDetails details,
+    BoxConstraints constraints,
+  ) async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    final offset = Offset(
+      details.localPosition.dx / constraints.maxWidth,
+      details.localPosition.dy / constraints.maxHeight,
+    );
+
+    try {
+      await _controller!.setFocusPoint(offset);
+      await _controller!.setExposurePoint(offset);
+    } catch (e) {
+      // Focus/exposure point not supported on this device
+      debugPrint('Focus not supported: $e');
+    }
+  }
+
   Future<void> _captureAndAnalyze() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
@@ -406,25 +426,28 @@ class _CameraScreenState extends State<CameraScreen>
             final previewWidth = constraints.maxWidth;
             final previewHeight = previewWidth / aspectRatio;
 
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: Container(
-                width: previewWidth,
-                height: previewHeight,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.white.withAlpha(30),
-                    width: 2,
+            return GestureDetector(
+              onTapDown: (details) => _onTapToFocus(details, constraints),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Container(
+                  width: previewWidth,
+                  height: previewHeight,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.white.withAlpha(30),
+                      width: 2,
+                    ),
                   ),
-                ),
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  clipBehavior: Clip.hardEdge,
-                  child: SizedBox(
-                    width: _controller!.value.previewSize!.height,
-                    height: _controller!.value.previewSize!.width,
-                    child: CameraPreview(_controller!),
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox(
+                      width: _controller!.value.previewSize!.height,
+                      height: _controller!.value.previewSize!.width,
+                      child: CameraPreview(_controller!),
+                    ),
                   ),
                 ),
               ),

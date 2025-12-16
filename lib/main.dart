@@ -127,7 +127,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!_modelLoaded) {
       setState(() {
-        _errorMessage = 'Failed to load AI model: ${classifier.lastError}';
+        _errorMessage = 'Failed to load AI model';
       });
       return;
     }

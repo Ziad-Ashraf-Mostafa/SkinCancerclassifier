@@ -21,40 +21,33 @@ class ClassificationResult {
 
 class SkinCancerClassifier {
   static const String _modelAsset = 'lib/ai/skin_cancer_model.tflite';
+  static const String _modelAssetBackup =
+      'lib/ai/skin_cancer_model_ready.tflite';
   static const String _labelsAsset = 'lib/ai/labels_cancer.txt';
+
+  // Fixed model input size: 299x299x3
+  static const int _inputSize = 299;
+
+  // Configurable threshold for binary classification
+  // Values below threshold = Benign, above = Malignant
+  static const double _malignantThreshold = 0.3;
 
   Interpreter? _interpreter;
   List<String> _labels = [];
 
-  // Labels that indicate potentially cancerous conditions
-  static const List<String> _cancerousLabels = [
-    'Basal cell carcinoma',
-    'Actinic keratoses',
-  ];
-
-  // Descriptions for each condition
+  // Descriptions for binary classification
   static const Map<String, String> _labelDescriptions = {
-    'Actinic keratoses':
-        'Rough, scaly patches caused by sun damage. Should be evaluated by a dermatologist.',
-    'Basal cell carcinoma':
-        'A type of skin cancer that begins in the basal cells. Requires medical attention.',
-    'Benign keratosis-like lesions':
-        'Non-cancerous skin growths that are generally harmless.',
-    'Dermatofibroma': 'A benign skin growth that is typically harmless.',
-    'Melanocytic nevi':
-        'Common moles that are usually benign. Monitor for changes.',
-    'Vascular lesions':
-        'Blood vessel-related skin marks that are typically benign.',
+    'Benign':
+        'The lesion appears to be benign (non-cancerous). However, continue to monitor for any changes in size, shape, or color.',
+    'Malignant':
+        'The lesion shows characteristics that may indicate malignancy. Please consult a dermatologist for professional evaluation as soon as possible.',
   };
 
   bool get isReady => _interpreter != null && _labels.isNotEmpty;
-  String? lastError;
 
   Future<bool> initialize() async {
     try {
-      debugPrint('Starting classifier initialization...');
-
-      // Load labels first (simpler operation)
+      // Load labels
       final labelsData = await rootBundle.loadString(_labelsAsset);
       _labels = labelsData
           .split('\n')
@@ -62,28 +55,30 @@ class SkinCancerClassifier {
           .where((e) => e.isNotEmpty)
           .toList();
 
-      debugPrint('Labels loaded: $_labels');
-
-      // Copy model from assets to temp directory for TFLite to access
+      // Load model from assets to temp file
       final modelFile = await _loadModelFile();
-      debugPrint('Model file path: ${modelFile.path}');
 
-      // Create interpreter from file
-      _interpreter = Interpreter.fromFile(modelFile);
+      // Create interpreter with multi-threading
+      final options = InterpreterOptions()..threads = 4;
 
+      try {
+        _interpreter = Interpreter.fromFile(modelFile, options: options);
+      } catch (e) {
+        // Fallback: try without options
+        try {
+          _interpreter = Interpreter.fromFile(modelFile);
+        } catch (e2) {
+          // Last resort: load from buffer
+          final modelBytes = await modelFile.readAsBytes();
+          _interpreter = Interpreter.fromBuffer(modelBytes);
+        }
+      }
+
+      _interpreter!.allocateTensors();
       debugPrint('SkinCancerClassifier initialized successfully');
-      debugPrint(
-        'Interpreter input shape: ${_interpreter!.getInputTensor(0).shape}',
-      );
-      debugPrint(
-        'Interpreter output shape: ${_interpreter!.getOutputTensor(0).shape}',
-      );
-
       return true;
-    } catch (e, stackTrace) {
-      lastError = e.toString();
+    } catch (e) {
       debugPrint('Error initializing classifier: $e');
-      debugPrint('Stack trace: $stackTrace');
       return false;
     }
   }
@@ -115,7 +110,7 @@ class SkinCancerClassifier {
     }
 
     try {
-      // Read and preprocess image
+      // Read and decode image
       final bytes = await imageFile.readAsBytes();
       final image = img.decodeImage(bytes);
 
@@ -124,96 +119,59 @@ class SkinCancerClassifier {
         return null;
       }
 
-      // Get actual input size from interpreter
-      final inputShape = _interpreter!.getInputTensor(0).shape;
-      final actualInputSize =
-          inputShape[1]; // Assuming [1, height, width, channels]
-
-      debugPrint('Using input size: $actualInputSize');
-
-      // Resize to model input size
+      // Preprocess image: resize to 299x299
       final resizedImage = img.copyResize(
         image,
-        width: actualInputSize,
-        height: actualInputSize,
+        width: _inputSize,
+        height: _inputSize,
+        interpolation: img.Interpolation.linear,
       );
 
-      // Convert to input tensor format (normalized float32)
-      final input = _imageToInputTensor(resizedImage, actualInputSize);
+      // Create input as 4D List matching [1, 299, 299, 3]
+      var input = List.generate(
+        1,
+        (b) => List.generate(
+          _inputSize,
+          (y) => List.generate(_inputSize, (x) {
+            final pixel = resizedImage.getPixel(x, y);
+            return <double>[
+              pixel.r.toDouble() / 255.0,
+              pixel.g.toDouble() / 255.0,
+              pixel.b.toDouble() / 255.0,
+            ];
+          }),
+        ),
+      );
 
-      // Get output shape
-      final outputShape = _interpreter!.getOutputTensor(0).shape;
-      final numClasses = outputShape[1];
-
-      // Prepare output tensor
-      final output = List.filled(numClasses, 0.0).reshape([1, numClasses]);
+      // Create output buffer matching [1, 1]
+      var output = List.generate(1, (_) => List.filled(1, 0.0));
 
       // Run inference
       _interpreter!.run(input, output);
 
-      // Find the class with highest confidence
-      final results = (output[0] as List)
-          .map((e) => (e as num).toDouble())
-          .toList();
-      int maxIndex = 0;
-      double maxConfidence = results[0];
+      // Get the sigmoid probability from output
+      final double probability = output[0][0];
 
-      for (int i = 1; i < results.length; i++) {
-        if (results[i] > maxConfidence) {
-          maxConfidence = results[i];
-          maxIndex = i;
-        }
-      }
+      // Apply threshold for binary classification
+      final bool isMalignant = probability >= _malignantThreshold;
+      final String label = isMalignant ? 'Malignant' : 'Benign';
 
-      // Ensure maxIndex is within labels range
-      if (maxIndex >= _labels.length) {
-        debugPrint(
-          'Warning: maxIndex $maxIndex >= labels length ${_labels.length}',
-        );
-        maxIndex = 0;
-      }
+      // Confidence is the probability for the predicted class
+      final double confidence = isMalignant ? probability : (1.0 - probability);
 
-      final label = _labels[maxIndex];
-      final isCancerous = _cancerousLabels.contains(label);
       final description =
           _labelDescriptions[label] ?? 'No description available.';
 
-      debugPrint(
-        'Classification result: $label with confidence $maxConfidence',
-      );
-
       return ClassificationResult(
         label: label,
-        confidence: maxConfidence,
-        isCancerous: isCancerous,
+        confidence: confidence,
+        isCancerous: isMalignant,
         description: description,
       );
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint('Error during classification: $e');
-      debugPrint('Stack trace: $stackTrace');
       return null;
     }
-  }
-
-  List<List<List<List<double>>>> _imageToInputTensor(
-    img.Image image,
-    int size,
-  ) {
-    final input = List.generate(
-      1,
-      (_) => List.generate(
-        size,
-        (y) => List.generate(size, (x) {
-          final pixel = image.getPixel(x, y);
-          return [
-            pixel.r.toDouble() / 255.0,
-            pixel.g.toDouble() / 255.0,
-            pixel.b.toDouble() / 255.0,
-          ];
-        }),
-      ),
-    );
-    return input;
   }
 
   void dispose() {
